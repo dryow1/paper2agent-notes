@@ -18,6 +18,15 @@ Scanpy_Agent/src/*
 !Scanpy_Agent/src/tools/
 Scanpy_Agent/src/tools/*
 !Scanpy_Agent/src/tools/*.py
+# ...plus the guard tests. The rest of tests/ (reference data, subsamples, logs,
+# results) stays out: it is gigabytes of .h5ad.
+!Scanpy_Agent/tests/
+Scanpy_Agent/tests/*
+!Scanpy_Agent/tests/code/
+Scanpy_Agent/tests/code/*
+!Scanpy_Agent/tests/code/clustering/
+Scanpy_Agent/tests/code/clustering/*
+!Scanpy_Agent/tests/code/clustering/test_tool_guards.py
 
 # Source only from TISSUE_Agent: the wrappers and their runners, never the venv,
 # the cloned repo, tmp/ or out/.
