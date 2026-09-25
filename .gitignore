@@ -10,6 +10,12 @@
 !RESULTS/
 !RESULTS/*.md
 
+# The INBOX door: its instructions travel with the repo, but anything a person
+# actually drops in there does not.
+!INBOX/
+INBOX/*
+!INBOX/README.md
+
 # Source only from Scanpy_Agent: the extracted tools and the MCP server, never the
 # venv, notebooks/, tests/, reports/ or tmp/.
 !Scanpy_Agent/
