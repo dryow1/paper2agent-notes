@@ -8,6 +8,17 @@
 !NOTES/
 !NOTES/*.md
 
+# Source only from Scanpy_Agent: the extracted tools and the MCP server, never the
+# venv, notebooks/, tests/, reports/ or tmp/.
+!Scanpy_Agent/
+Scanpy_Agent/*
+!Scanpy_Agent/src/
+Scanpy_Agent/src/*
+!Scanpy_Agent/src/*.py
+!Scanpy_Agent/src/tools/
+Scanpy_Agent/src/tools/*
+!Scanpy_Agent/src/tools/*.py
+
 # Source only from TISSUE_Agent: the wrappers and their runners, never the venv,
 # the cloned repo, tmp/ or out/.
 !TISSUE_Agent/
