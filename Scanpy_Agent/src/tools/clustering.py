@@ -19,6 +19,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import anndata as ad  # noqa: E402
+import numpy as np  # noqa: E402
+import scipy.sparse as sp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 from fastmcp import FastMCP  # noqa: E402
 
@@ -77,19 +79,68 @@ def _require_color_keys(adata: ad.AnnData, keys: list[str]) -> None:
         raise ValueError(f"color keys not found in adata.obs columns or var_names: {missing}")
 
 
-def _require_nonnegative_counts(adata: ad.AnnData) -> None:
-    """Reject scaled/z-scored matrices, which produce meaningless QC metrics.
+def _counts_hint(adata: ad.AnnData) -> str:
+    """Point at a counts layer / raw slot when this object actually has one."""
+    if "counts" in adata.layers:
+        return " This object has layers['counts']: set adata.X = adata.layers['counts'] and retry."
+    if adata.raw is not None:
+        return " This object has a .raw slot, but check it holds counts (it is often log-normalized)."
+    return " Supply the raw count matrix instead."
 
-    sc.pp.calculate_qc_metrics sums X per cell, so a scaled matrix yields negative
-    'total_counts' and out-of-range 'pct_counts_*' while reporting success.
+
+def _require_raw_counts(adata: ad.AnnData) -> None:
+    """Reject matrices that are demonstrably not raw counts.
+
+    sc.pp.calculate_qc_metrics just sums X per cell, so it returns a plausible-looking
+    number for any input: scaled data give negative 'total_counts', log-normalized data
+    give totals that are not counts at all, and neither is flagged.
+
+    Each rule below keys on a positive signature of a transformation rather than on
+    "not integral", so ambient-corrected or otherwise fractional count matrices - which
+    are still counts - are allowed through.
     """
     X = adata.X
-    xmin = float(X.min()) if X.size else 0.0
+    values = X.data if sp.issparse(X) else np.asarray(X).reshape(-1)
+    if values.size == 0:
+        return
+
+    # 1. scanpy stamps uns['log1p'] when it log-transforms. Definitive.
+    if "log1p" in adata.uns:
+        raise ValueError(
+            "adata.uns['log1p'] is present: the data have already been log-transformed, so "
+            "QC metrics computed from them are not counts." + _counts_hint(adata)
+        )
+
+    # 2. Negative values mean scaled/z-scored.
+    xmin = float(values.min())
     if xmin < 0:
         raise ValueError(
             f"X contains negative values (min {xmin:.4g}): the data look scaled/z-scored, "
-            "not raw counts, and QC metrics computed from them are meaningless. "
-            "Supply raw counts - e.g. adata.X = adata.layers['counts'] if a counts layer exists."
+            "not raw counts, and QC metrics computed from them are meaningless."
+            + _counts_hint(adata)
+        )
+
+    if not np.any(values % 1):
+        return  # integral and non-negative: counts
+
+    xmax = float(values.max())
+    # 3. Fractional values with a small ceiling are the signature of log1p: log1p of even
+    #    100,000 counts is only 11.5, whereas a real count matrix with a max below 50 is integral.
+    if xmax < 50:
+        raise ValueError(
+            f"X has fractional values and a maximum of only {xmax:.4g}: the data look "
+            "log-transformed, not raw counts, so 'total_counts' would not be a count."
+            + _counts_hint(adata)
+        )
+
+    # 4. Fractional values with near-constant per-cell totals mean normalize_total() was run.
+    totals = np.asarray(X.sum(axis=1)).reshape(-1)
+    mean_total = float(totals.mean())
+    if mean_total > 0 and float(totals.std()) / mean_total < 1e-3:
+        raise ValueError(
+            f"X has fractional values and near-identical per-cell totals (~{mean_total:.4g}): "
+            "the data look normalized to a fixed target sum, not raw counts."
+            + _counts_hint(adata)
         )
 
 
@@ -118,7 +169,7 @@ def scanpy_compute_qc_and_filter(
     Raw-count .h5ad/.h5 → QC-annotated filtered .h5ad plus QC violin and scatter figures.
     """
     adata = _read(data_path, allow_10x_h5=True)
-    _require_nonnegative_counts(adata)
+    _require_raw_counts(adata)
     out = _output_dir(output_dir, "qc_filter")
     n_obs_raw, n_vars_raw = adata.shape
     with contextlib.redirect_stdout(sys.stderr):
