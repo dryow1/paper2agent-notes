@@ -7,3 +7,12 @@
 !README.md
 !NOTES/
 !NOTES/*.md
+
+# Source only from TISSUE_Agent: the wrappers and their runners, never the venv,
+# the cloned repo, tmp/ or out/.
+!TISSUE_Agent/
+TISSUE_Agent/*
+!TISSUE_Agent/run_tutorial.py
+!TISSUE_Agent/src/
+TISSUE_Agent/src/*
+!TISSUE_Agent/src/*.py
