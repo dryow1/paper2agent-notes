@@ -1,0 +1,9 @@
+# This repo publishes the notes only. Ignore everything, then allow the notes
+# and the README back in, so no venv, h5ad dump, cache or clone can be added
+# by accident.
+*
+
+!.gitignore
+!README.md
+!NOTES/
+!NOTES/*.md
