@@ -32,13 +32,28 @@ TEACHING_FILE = PROJECT_ROOT / "tmp" / "pbmc68k" / "01_counts_restored.h5ad"
 
 
 def run_door(tray: Path, *extra: str) -> int:
-    """Invoke the door's CLI against one tray and return its exit code."""
+    """Invoke the door's CLI against one tray and return its exit code.
+
+    Receipts are suppressed unless a test asks for one, so tests never write into the real
+    RESULTS/ directory.
+    """
     argv = ["inbox.py", "--inbox", str(tray), *extra]
+    if "--report" not in extra and "--no-report" not in extra:
+        argv.append("--no-report")
     old, sys.argv = sys.argv, argv
     try:
         return inbox.main()
     finally:
         sys.argv = old
+
+
+def receipt_from(tray: Path, dest: Path, *extra: str) -> tuple[int, dict]:
+    """Run the door asking for a receipt at `dest`, and return (exit code, parsed receipt)."""
+    import json
+
+    code = run_door(tray, "--report", str(dest), *extra)
+    assert dest.is_file(), "the door did not write a receipt"
+    return code, json.loads(dest.read_text())
 
 
 def tiny_h5ad(path: Path, *, log1p_stamp: bool = False) -> Path:
@@ -244,3 +259,115 @@ def test_accept_path_runs_qc_on_the_smallest_teaching_file(tmp_path, capsys):
     assert "QC computed" in out
     assert "Nothing was clustered, annotated or named" in out
     assert list((tmp_path / "out").glob("qc_filter_*/qc_filtered.h5ad")), "no QC artifact written"
+
+
+# ---------------------------------------------------------------------------------------
+# The JSON receipt
+# ---------------------------------------------------------------------------------------
+
+RECEIPT_KEYS = {
+    "timestamp", "decision", "reason", "exit_code", "inbox", "file_name", "size_mb",
+    "shape", "layers", "raw_counts", "raw_counts_reason", "estimated_ram_mb",
+    "ram_budget_mb", "artifacts",
+}
+
+
+def test_empty_tray_still_writes_a_receipt(tmp_path):
+    """A refusal with no record is not a decision."""
+    code, r = receipt_from(tmp_path, tmp_path / "out" / "receipt.json")
+    assert code == REFUSED
+    assert r["decision"] == "refuse"
+    assert r["exit_code"] == REFUSED
+    assert "empty" in r["reason"]
+    # Nothing was read, so everything about the file is honestly null - not missing.
+    assert r["file_name"] is None
+    assert r["shape"] is None
+    assert r["layers"] is None
+    assert r["raw_counts"] is None
+    assert r["estimated_ram_mb"] is None
+
+
+def test_receipt_always_has_every_key(tmp_path):
+    _, r = receipt_from(tmp_path, tmp_path / "receipt.json")
+    assert set(r) == RECEIPT_KEYS, "a reader should never have to test for a missing key"
+
+
+def test_oversize_refusal_writes_a_receipt_with_the_size(tmp_path, monkeypatch):
+    tiny_h5ad(tmp_path / "small.h5ad")
+    monkeypatch.setattr(inbox, "MAX_FILE_MB", 0.0001)
+    code, r = receipt_from(tmp_path, tmp_path / "receipt.json")
+    assert code == REFUSED
+    assert r["decision"] == "refuse"
+    assert r["file_name"] == "small.h5ad"
+    assert r["size_mb"] > 0, "the size that triggered the refusal should be recorded"
+    assert "door limit" in r["reason"]
+    # Refused before reading, so the contents stay unknown.
+    assert r["shape"] is None
+
+
+def test_not_counts_refusal_records_what_was_inspected(tmp_path):
+    """Refused at the last gate, so the receipt carries the full inspection."""
+    tiny_h5ad(tmp_path / "logged.h5ad", log1p_stamp=True)
+    code, r = receipt_from(tmp_path, tmp_path / "receipt.json")
+    assert code == REFUSED
+    assert r["decision"] == "refuse"
+    assert r["shape"] == {"cells": 10, "genes": 5}
+    assert r["raw_counts"] == "not counts"
+    assert "log1p" in r["raw_counts_reason"]
+    assert r["estimated_ram_mb"] == inbox.RAM_FLOOR_MB  # 50 cells x genes rounds to the floor
+    assert r["artifacts"] is None
+
+
+def test_unreadable_file_receipt_says_error_not_refuse(tmp_path):
+    (tmp_path / "broken.h5ad").write_text("not HDF5")
+    code, r = receipt_from(tmp_path, tmp_path / "receipt.json")
+    assert code == READ_ERROR
+    assert r["decision"] == "error"
+    assert r["exit_code"] == READ_ERROR
+
+
+def test_inspect_only_receipt_is_neither_accept_nor_refuse(tmp_path):
+    tiny_h5ad(tmp_path / "tiny.h5ad")
+    code, r = receipt_from(tmp_path, tmp_path / "receipt.json", "--inspect-only")
+    assert code == RAN
+    assert r["decision"] == "inspected"
+    assert r["shape"] == {"cells": 10, "genes": 5}
+    assert r["artifacts"] is None
+
+
+def test_no_report_writes_nothing(tmp_path):
+    dest = tmp_path / "receipt.json"
+    assert run_door(tmp_path, "--no-report") == REFUSED
+    assert not dest.exists()
+
+
+def test_receipt_default_path_is_used_when_no_flag(tmp_path, monkeypatch):
+    """Without --report the receipt lands at DEFAULT_REPORT, and parent dirs are created."""
+    import json
+
+    dest = tmp_path / "somewhere" / "inbox-last.json"
+    monkeypatch.setattr(inbox, "DEFAULT_REPORT", dest)
+    argv = ["inbox.py", "--inbox", str(tmp_path)]
+    old, sys.argv = sys.argv, argv
+    try:
+        assert inbox.main() == REFUSED
+    finally:
+        sys.argv = old
+    assert json.loads(dest.read_text())["decision"] == "refuse"
+
+
+def test_bad_receipt_path_does_not_break_the_refusal(tmp_path, capsys):
+    """An unwritable receipt path must not turn a clean refusal into a crash."""
+    blocked = tmp_path / "afile"
+    blocked.write_text("x")
+    assert run_door(tmp_path, "--report", str(blocked / "nested" / "receipt.json")) == REFUSED
+    assert "REFUSED" in capsys.readouterr().out
+
+
+def test_tray_instructions_are_not_mistaken_for_a_dropped_file(tmp_path):
+    """INBOX ships README.md and HOW-TO.md; neither is data."""
+    (tmp_path / "README.md").write_text("readme")
+    (tmp_path / "HOW-TO.md").write_text("how to")
+    code, r = receipt_from(tmp_path, tmp_path / "receipt.json")
+    assert code == REFUSED
+    assert "empty" in r["reason"]

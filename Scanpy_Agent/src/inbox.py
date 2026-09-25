@@ -7,6 +7,8 @@ Contract
   reported before anything is computed.
 * Then either run ``scanpy_compute_qc_and_filter`` (which applies the notes 007-008 locks)
   or refuse with **one line** saying why.
+* Every run writes one JSON receipt (default RESULTS/inbox-last.json, or --report FILE),
+  whether it accepted, refused or could not read the file.
 * An empty INBOX is a refusal, never a reason to fetch a demo dataset.
 * Nothing is clustered, annotated or named. This door does QC and stops.
 
@@ -25,6 +27,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[1])).resolve()
 DEFAULT_INBOX = PROJECT_ROOT.parent / "INBOX"
+
+#: Where the JSON receipt lands unless --report says otherwise. One file, overwritten each
+#: run: it records the last decision, not a history.
+DEFAULT_REPORT = PROJECT_ROOT.parent / "RESULTS" / "inbox-last.json"
 
 #: The tools read .h5ad and a 10x Genomics .h5 (tools/clustering.py::_read). A 10x *folder*
 #: (matrix.mtx + barcodes + features) is NOT supported, so the door refuses it rather than
@@ -58,7 +64,11 @@ def find_input(inbox: Path) -> Path:
     """Pick the single acceptable file in INBOX, or refuse."""
     if not inbox.is_dir():
         raise Refusal(f"no INBOX at {inbox} - create it and put one .h5ad or 10x .h5 file in it.")
-    entries = [p for p in sorted(inbox.iterdir()) if not p.name.startswith(".") and p.name != "README.md"]
+    # The tray's own instructions (README.md, HOW-TO.md) are furniture, not dropped files.
+    entries = [
+        p for p in sorted(inbox.iterdir())
+        if not p.name.startswith(".") and not (p.is_file() and p.suffix.lower() == ".md")
+    ]
     if not entries:
         raise Refusal(
             f"INBOX is empty ({inbox}) - drop one .h5ad or 10x .h5 file in it. "
@@ -196,28 +206,71 @@ async def run_qc(path: Path, out_dir: Path, mt_prefix: str) -> dict:
     return result.data
 
 
+def blank_receipt(inbox: Path) -> dict:
+    """Every key the receipt will ever have, so a reader never has to test for absence.
+
+    Unknown means null: a refusal before the file was read leaves shape and layers null,
+    and that is the honest answer, not an omission.
+    """
+    return {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "decision": None,       # accept | refuse | error | inspected
+        "reason": None,
+        "exit_code": None,
+        "inbox": str(inbox),
+        "file_name": None,
+        "size_mb": None,
+        "shape": None,          # {"cells": int, "genes": int}
+        "layers": None,
+        "raw_counts": None,     # raw counts | not counts | count-like
+        "raw_counts_reason": None,
+        "estimated_ram_mb": None,
+        "ram_budget_mb": RAM_BUDGET_MB,
+        "artifacts": None,
+    }
+
+
+def write_receipt(report: dict, path: Path) -> None:
+    """Always write one, even on refusal. A refusal with no record is not a decision."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2, default=str))
+        print(f"door: receipt -> {path}")
+    except OSError as exc:
+        # Never let a bad receipt path turn a clean refusal into a crash.
+        print(f"door: could not write receipt to {path} ({exc})", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inbox", default=str(DEFAULT_INBOX), help=f"folder to read (default {DEFAULT_INBOX})")
     ap.add_argument("--inspect-only", action="store_true", help="report what the file is, then stop")
     ap.add_argument("--mt-prefix", default="MT-", help="mitochondrial gene prefix ('MT-' human, 'mt-' mouse)")
     ap.add_argument("--output-dir", default=None, help="where QC artifacts go (default INBOX/../INBOX_OUT)")
-    ap.add_argument("--report", default=None, help="also write the report as JSON here")
+    ap.add_argument("--report", default=None, help=f"where to write the JSON receipt (default {DEFAULT_REPORT})")
+    ap.add_argument("--no-report", action="store_true", help="do not write a receipt at all")
     args = ap.parse_args()
 
     inbox = Path(args.inbox).expanduser().resolve()
-    report: dict = {"when": datetime.now().isoformat(timespec="seconds"), "inbox": str(inbox)}
+    report = blank_receipt(inbox)
     print(f"door: reading {inbox}")
 
+    code = 0
     try:
         path = find_input(inbox)
-        report["file"] = str(path)
-        report["file_mb"] = round(check_size(path), 2)
-        print(f"door: found {path.name} ({report['file_mb']} MB)")
+        report["file_name"] = path.name
+        # Record the size BEFORE checking it, so an oversize refusal still says how big.
+        # 4 dp so a small file is not recorded as 0.
+        report["size_mb"] = round(path.stat().st_size / (1024 * 1024), 4)
+        print(f"door: found {path.name} ({report['size_mb']} MB)")
+        check_size(path)
 
         # --- inspect first, always ---
         info = inspect(path)
-        report["inspect"] = info
+        report["shape"] = {"cells": info["n_obs"], "genes": info["n_vars"]}
+        report["layers"] = info["layers"]
+        report["raw_counts"] = info["counts_verdict"]
+        report["raw_counts_reason"] = info["counts_reason"]
         print(f"  shape         : {info['n_obs']:,} cells x {info['n_vars']:,} genes ({info['X_type']}, {info['X_dtype']})")
         print(f"  values        : min {info['X_min']}, max {info['X_max']}, integral={info['X_integral']}")
         print(f"  layers        : {info['layers'] or 'none'} | raw slot: {info['has_raw']}")
@@ -226,42 +279,44 @@ def main() -> int:
         print(f"  counts verdict: {info['counts_verdict']} ({info['counts_reason']})")
 
         ram = ram_lookahead(info)
-        report["ram_lookahead"] = ram
+        report["estimated_ram_mb"] = ram["estimated_peak_mb"]
         print(f"  RAM look-ahead: ~{_fmt_mb(ram['estimated_peak_mb'])} peak "
               f"(budget {_fmt_mb(ram['budget_mb'])}) -> {'ok' if ram['within_budget'] else 'TOO BIG'}")
 
         if args.inspect_only:
-            report["outcome"] = "inspected"
+            report["decision"] = "inspected"
+            report["reason"] = "--inspect-only: looked, did not run"
             print("door: --inspect-only, stopping here.")
-            return 0
+        else:
+            decide(info, ram)
 
-        decide(info, ram)
-
-        out = Path(args.output_dir) if args.output_dir else inbox.parent / "INBOX_OUT"
-        out.mkdir(parents=True, exist_ok=True)
-        print(f"door: accepted -> running scanpy_compute_qc_and_filter (mt_prefix={args.mt_prefix!r})")
-        result = asyncio.run(run_qc(path, out, args.mt_prefix))
-        report["outcome"] = "qc_ran"
-        report["qc"] = {k: v for k, v in result.items() if k != "reference"}
-        print(f"door: {result['message']}")
-        for a in result["artifacts"]:
-            print(f"  - {a['description']}: {a['path']}")
-        print("door: QC only. Nothing was clustered, annotated or named.")
-        return 0
+            out = Path(args.output_dir) if args.output_dir else inbox.parent / "INBOX_OUT"
+            out.mkdir(parents=True, exist_ok=True)
+            print(f"door: accepted -> running scanpy_compute_qc_and_filter (mt_prefix={args.mt_prefix!r})")
+            result = asyncio.run(run_qc(path, out, args.mt_prefix))
+            report["decision"] = "accept"
+            report["reason"] = result["message"]
+            report["artifacts"] = [a["path"] for a in result["artifacts"]]
+            print(f"door: {result['message']}")
+            for a in result["artifacts"]:
+                print(f"  - {a['description']}: {a['path']}")
+            print("door: QC only. Nothing was clustered, annotated or named.")
 
     except Refusal as r:
-        report["outcome"] = "refused"
+        report["decision"] = "refuse"
         report["reason"] = str(r)
+        code = 2
         print(f"door: REFUSED - {r}")
-        return 2
     except Exception as exc:  # noqa: BLE001 - a bad file should not look like a crash in the door
-        report["outcome"] = "error"
+        report["decision"] = "error"
         report["reason"] = f"{type(exc).__name__}: {exc}"
+        code = 3
         print(f"door: ERROR reading the file - {type(exc).__name__}: {exc}")
-        return 3
-    finally:
-        if args.report:
-            Path(args.report).write_text(json.dumps(report, indent=2, default=str))
+
+    report["exit_code"] = code
+    if not args.no_report:
+        write_receipt(report, Path(args.report).expanduser() if args.report else DEFAULT_REPORT)
+    return code
 
 
 if __name__ == "__main__":

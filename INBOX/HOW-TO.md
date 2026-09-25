@@ -38,6 +38,10 @@ whether it's the right kind of data — without computing anything. Nothing is c
 
 Add `--mt-prefix mt-` if your data is from **mouse**. The default assumes human.
 
+**Every run leaves a receipt** — a small JSON file recording what it decided and why. It goes to
+`RESULTS/inbox-last.json` by default; use `--report somewhere/else.json` to put it elsewhere, or
+`--no-report` to skip it. You get one whether it accepted your file or refused it.
+
 ## What actually happens
 
 It looks at your file first, every time, and prints:
