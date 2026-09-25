@@ -7,6 +7,8 @@
 !README.md
 !NOTES/
 !NOTES/*.md
+!RESULTS/
+!RESULTS/*.md
 
 # Source only from Scanpy_Agent: the extracted tools and the MCP server, never the
 # venv, notebooks/, tests/, reports/ or tmp/.
