@@ -15,6 +15,7 @@
 !INBOX/
 INBOX/*
 !INBOX/README.md
+!INBOX/HOW-TO.md
 
 # Source only from Scanpy_Agent: the extracted tools and the MCP server, never the
 # venv, notebooks/, tests/, reports/ or tmp/.
@@ -35,6 +36,9 @@ Scanpy_Agent/tests/code/*
 !Scanpy_Agent/tests/code/clustering/
 Scanpy_Agent/tests/code/clustering/*
 !Scanpy_Agent/tests/code/clustering/test_tool_guards.py
+!Scanpy_Agent/tests/code/inbox/
+Scanpy_Agent/tests/code/inbox/*
+!Scanpy_Agent/tests/code/inbox/*.py
 
 # Source only from TISSUE_Agent: the wrappers and their runners, never the venv,
 # the cloned repo, tmp/ or out/.
