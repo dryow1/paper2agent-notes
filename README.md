@@ -25,6 +25,12 @@ a cold start, what is authoritative, what fails on this machine, what is safe to
 - [009 — Guard tests](NOTES/009-scanpy-guard-tests.md): 14 pytest cases, mutation-checked so
   they can actually fail. Suite 50 → 64.
 - [010 — Operator sheet](NOTES/010-operator-sheet.md): the handover.
+- [014 — One Adamson 2016 CRISPR lane](NOTES/014-adamson2016-one-lane.md): a **negative** result —
+  5,768 K562 cells, and the clusters bear no relation to which gene was knocked down, though every
+  targeted gene really was switched down in its own labelled cells. Written up as the finding.
+- [015 — The hosted AlphaGenome MCP](NOTES/015-alphagenome-hosted.md): probed over HTTP only.
+  Live, 22 tools — but the 3 that run the model need an API key, and artifacts from successful
+  calls 404. Reachable is not the same as usable.
 
 Notes, plus the tool source they describe. No data, environments or reference `.h5ad` files —
 which means the committed tests are here to be read, not run. Results, limits and failures are
