@@ -7,6 +7,11 @@
 **Result:** **32 assertions, 32 passed.** Every number note 005 printed reproduced exactly, to
 the four decimal places it printed them. 15.7 s, peak **407 MB** — the same peak note 005 recorded.
 
+> **Partly superseded by [013](013-tissue-knn.md).** The file now holds **37** tests, and one of
+> the seven refusals recorded below was pinning a **false** message (`knn` was advertised as
+> available in this environment; it is not). Every *numeric* value in this note is unaffected and
+> still verified.
+
 ## Short version
 
 Note 005 ended with an admission: *"No test suite. Correctness rests on the numbers matching

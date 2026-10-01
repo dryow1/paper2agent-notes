@@ -19,6 +19,7 @@ Reference: https://github.com/sunericd/TISSUE (commit ffc3599)
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import tempfile
@@ -34,9 +35,47 @@ import numpy as np  # noqa: E402
 
 REFERENCE = "https://github.com/sunericd/TISSUE/blob/ffc35998004ecf44eaf2aedf774c2f6a2292e7b9/README.md"
 
-#: Prediction methods whose dependencies the pinned environment actually has.
-#: tangram / gimvi are commented out in the repo's requirements.txt and are not installed.
-SUPPORTED_METHODS = ("spage", "knn")
+#: Prediction methods TISSUE implements. Being listed here does NOT mean usable — see
+#: `_method_blocker` for what each one actually needs. tangram/gimvi are commented out in
+#: the repo's requirements.txt and are not installed.
+KNOWN_METHODS = ("spage", "knn", "gimvi", "tangram")
+
+#: Methods this wrapper can actually drive in the environment it is running in.
+#: Computed, not asserted: note 013 found `knn` was advertised as available when it was not.
+def _method_blocker(method: str) -> str | None:
+    """Why `method` cannot be run here, or None if it can be.
+
+    knn has two independent blockers, both recorded in note 013:
+      1. `tissue.main.knn_impute` takes `n_neighbors` as a required positional argument and
+         `predict_gene_expression` forwards only **kwargs, so there is no way to supply it
+         through this wrapper. This one is ours to fix and is not fixed.
+      2. `knn_impute` calls `scanpy.external.pp.harmony_integrate`, which raises ImportError
+         unless `harmonypy` is installed. It is not in the pinned environment.
+    """
+    if method not in KNOWN_METHODS:
+        return f"{method} is not a TISSUE prediction method"
+    if method == "spage":
+        return None
+    if method == "knn":
+        reasons = [
+            "tissue_predict_spatial_gene has no way to pass the 'n_neighbors' argument that "
+            "tissue.main.knn_impute requires (it is positional with no default)"
+        ]
+        if importlib.util.find_spec("harmonypy") is None:
+            reasons.append(
+                "harmonypy is not installed, so the harmony_integrate call inside knn_impute "
+                "raises ImportError"
+            )
+        return "; and ".join(reasons)
+    return (
+        f"{method} needs extra packages that the repo's requirements.txt leaves commented "
+        "out, and they are not installed"
+    )
+
+
+def available_methods() -> list[str]:
+    """The methods that can actually be run here, checked rather than assumed."""
+    return [m for m in KNOWN_METHODS if _method_blocker(m) is None]
 
 
 def _tissue_repo() -> Path:
@@ -128,10 +167,16 @@ def tissue_predict_spatial_gene(
     scrna = _require_file(scrna_counts_path, "scrna_counts_path")
     gene = str(target_gene).lower()
     method = str(method).lower()
-    if method not in SUPPORTED_METHODS:
+    if method not in KNOWN_METHODS:
         raise ValueError(
-            f"method '{method}' is not available in this environment; supported: {list(SUPPORTED_METHODS)}. "
-            "tangram/gimvi need extra packages that requirements.txt leaves commented out."
+            f"method '{method}' is not a TISSUE prediction method; TISSUE implements "
+            f"{list(KNOWN_METHODS)} and this environment can run {available_methods()}."
+        )
+    blocker = _method_blocker(method)
+    if blocker is not None:
+        raise ValueError(
+            f"method '{method}' cannot be run here: {blocker}. "
+            f"Runnable methods in this environment: {available_methods()}."
         )
     if n_folds < 2:
         raise ValueError(f"n_folds must be at least 2, got {n_folds}")

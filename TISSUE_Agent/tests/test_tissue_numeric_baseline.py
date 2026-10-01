@@ -400,10 +400,71 @@ def test_refuses_unknown_gene():
 
 
 def test_refuses_unavailable_method():
+    """Note 005 pinned 'is not available in this environment'; note 013 found that message
+    was false for knn, so the wording changed. See test_knn_refusal_names_both_blockers."""
     _expect_value_error(
         lambda ns: ns["predict"](**_predict_kwargs(method="tangram")),
-        "is not available in this environment",
+        "cannot be run here",
         "unsupported method",
+    )
+
+
+def test_refuses_unknown_method():
+    _expect_value_error(
+        lambda ns: ns["predict"](**_predict_kwargs(method="notamethod")),
+        "is not a TISSUE prediction method",
+        "unknown method",
+    )
+
+
+def test_knn_is_not_advertised_as_runnable():
+    """The note 013 bug: SUPPORTED_METHODS claimed knn was available in this environment.
+
+    knn is unavailable for two independent reasons, so it must not appear in the runnable
+    list. If harmonypy is ever installed AND the n_neighbors passthrough is added, this test
+    is the one to revisit — deliberately, not by accident.
+    """
+    from tissue_tools import available_methods
+
+    assert "knn" not in available_methods(), (
+        "knn is listed as runnable, but it needs harmonypy and an n_neighbors passthrough "
+        "(note 013); runnable=%r" % (available_methods(),)
+    )
+    assert available_methods() == ["spage"], (
+        "runnable methods changed: %r — reconcile with note 013" % (available_methods(),)
+    )
+
+
+def test_knn_refusal_names_both_blockers():
+    """A refusal that hides one of two blockers sends the reader to fix the wrong thing."""
+    _expect_value_error(
+        lambda ns: ns["predict"](**_predict_kwargs(method="knn")),
+        "n_neighbors",
+        "knn refusal names the missing passthrough",
+    )
+    _expect_value_error(
+        lambda ns: ns["predict"](**_predict_kwargs(method="knn")),
+        "harmonypy",
+        "knn refusal names the missing package",
+    )
+
+
+def test_knn_refusal_is_a_valueerror_not_a_typeerror():
+    """Before note 013 this path reached upstream and died with
+    `TypeError: knn_impute() missing 1 required positional argument: 'n_neighbors'`."""
+    _expect_value_error(
+        lambda ns: ns["predict"](**_predict_kwargs(method="knn")),
+        "cannot be run here",
+        "knn refused before any computation",
+    )
+
+
+def test_harmonypy_really_is_absent():
+    """The premise of the refusal. If this fails, the knn message is now the false one."""
+    import importlib.util
+
+    assert importlib.util.find_spec("harmonypy") is None, (
+        "harmonypy is now installed — rerun the knn ticket and update note 013"
     )
 
 
