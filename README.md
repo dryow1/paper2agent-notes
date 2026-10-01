@@ -1,7 +1,8 @@
 # paper2agent notes
 
 Field notes from running [Paper2Agent](https://github.com/jmiao24/Paper2Agent) on a 16 GB Dell
-laptop with **no GPU** — everything CPU-only, capped at 10 GB RAM. Phase 1, ten notes.
+laptop with **no GPU** — everything CPU-only, capped at 10 GB RAM. Fourteen notes (001–010 and
+012–015; there is no 011).
 
 **Start with [010 — the operator sheet](NOTES/010-operator-sheet.md)**: how to run everything from
 a cold start, what is authoritative, what fails on this machine, what is safe to delete.
@@ -25,6 +26,13 @@ a cold start, what is authoritative, what fails on this machine, what is safe to
 - [009 — Guard tests](NOTES/009-scanpy-guard-tests.md): 14 pytest cases, mutation-checked so
   they can actually fail. Suite 50 → 64.
 - [010 — Operator sheet](NOTES/010-operator-sheet.md): the handover.
+- [012 — A numeric baseline for TISSUE](NOTES/012-tissue-numeric-baseline.md): upstream asserts no
+  numbers at all, so note 005's figures were the only baseline and they lived in prose — now 32
+  assertions that re-run the pipeline (37 after note 013). Self-consistency, not correctness:
+  nothing checks them against the paper.
+- [013 — TISSUE knn, refused](NOTES/013-tissue-knn.md): the ticket was to run `knn`; it cannot run
+  here. Two blockers, and the guard had been **claiming it was available**. The false claim is
+  fixed; `knn` is still unrun.
 - [014 — One Adamson 2016 CRISPR lane](NOTES/014-adamson2016-one-lane.md): a **negative** result —
   5,768 K562 cells, and the clusters bear no relation to which gene was knocked down, though every
   targeted gene really was switched down in its own labelled cells. Written up as the finding.
