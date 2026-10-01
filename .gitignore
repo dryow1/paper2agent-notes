@@ -31,8 +31,10 @@ Scanpy_Agent/src/tools/*
 # results) stays out: it is gigabytes of .h5ad.
 !Scanpy_Agent/tests/
 Scanpy_Agent/tests/*
+!Scanpy_Agent/tests/MANIFEST.md
 !Scanpy_Agent/tests/code/
 Scanpy_Agent/tests/code/*
+!Scanpy_Agent/tests/code/test_manifest_hashes.py
 !Scanpy_Agent/tests/code/clustering/
 Scanpy_Agent/tests/code/clustering/*
 !Scanpy_Agent/tests/code/clustering/test_tool_guards.py
