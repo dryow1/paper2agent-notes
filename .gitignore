@@ -51,3 +51,7 @@ TISSUE_Agent/*
 !TISSUE_Agent/src/
 TISSUE_Agent/src/*
 !TISSUE_Agent/src/*.py
+# ...plus the numeric baseline (note 012). The directory has to be un-ignored before a
+# file inside it can be: git cannot re-include a file whose parent dir is excluded.
+!TISSUE_Agent/tests/
+!TISSUE_Agent/tests/test_tissue_numeric_baseline.py
