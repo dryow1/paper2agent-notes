@@ -21,6 +21,7 @@ INBOX/*
 # venv, notebooks/, tests/, reports/ or tmp/.
 !Scanpy_Agent/
 Scanpy_Agent/*
+!Scanpy_Agent/USAGE.md
 !Scanpy_Agent/src/
 Scanpy_Agent/src/*
 !Scanpy_Agent/src/*.py
